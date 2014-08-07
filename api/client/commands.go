@@ -82,6 +82,7 @@ func (cli *DockerCli) CmdHelp(args ...string) error {
 		{"run", "Run a command in a new container"},
 		{"save", "Save an image to a tar archive"},
 		{"search", "Search for an image on the Docker Hub"},
+		{"squash", "Create a new image by combining several layers"},
 		{"start", "Start a stopped container"},
 		{"stop", "Stop a running container"},
 		{"tag", "Tag an image into a repository"},
@@ -1630,6 +1631,49 @@ func (cli *DockerCli) CmdCommit(args ...string) error {
 		}
 	}
 	stream, _, err := cli.call("POST", "/commit?"+v.Encode(), config, false)
+	if err != nil {
+		return err
+	}
+	if err := env.Decode(stream); err != nil {
+		return err
+	}
+
+	fmt.Fprintf(cli.out, "%s\n", env.Get("Id"))
+	return nil
+}
+
+func (cli *DockerCli) CmdSquash(args ...string) error {
+	cmd := cli.Subcmd("squash", "[OPTIONS] BASEIMAGE LEAFIMAGE [REPOSITORY[:TAG]]", "Create a new image by combining several layers")
+	flComment := cmd.String([]string{"m", "-message"}, "", "Commit message")
+	if err := cmd.Parse(args); err != nil {
+		return nil
+	}
+
+	if cmd.NArg() < 2 {
+		cmd.Usage()
+		return nil
+	}
+
+	var repository, tag string
+
+	if cmd.NArg() == 3 {
+		repository, tag = parsers.ParseRepositoryTag(cmd.Arg(2))
+	}
+
+	base := cmd.Arg(0)
+	leaf := cmd.Arg(1)
+
+	v := url.Values{}
+	v.Set("base", base)
+	v.Set("leaf", leaf)
+	v.Set("repo", repository)
+	v.Set("tag", tag)
+	v.Set("comment", *flComment)
+	var (
+		config *runconfig.Config
+		env    engine.Env
+	)
+	stream, _, err := cli.call("POST", "/images/squash?"+v.Encode(), config, false)
 	if err != nil {
 		return err
 	}

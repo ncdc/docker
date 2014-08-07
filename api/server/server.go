@@ -461,6 +461,32 @@ func postCommit(eng *engine.Engine, version version.Version, w http.ResponseWrit
 	return writeJSON(w, http.StatusCreated, env)
 }
 
+func postImagesSquash(eng *engine.Engine, version version.Version, w http.ResponseWriter, r *http.Request, vars map[string]string) error {
+	if err := parseForm(r); err != nil {
+		return err
+	}
+	var (
+		config       engine.Env
+		env          engine.Env
+		job          = eng.Job("squash", r.Form.Get("base"), r.Form.Get("leaf"))
+		stdoutBuffer = bytes.NewBuffer(nil)
+	)
+	if err := config.Decode(r.Body); err != nil {
+		utils.Errorf("%s", err)
+	}
+
+	job.Setenv("repo", r.Form.Get("repo"))
+	job.Setenv("tag", r.Form.Get("tag"))
+	job.Setenv("comment", r.Form.Get("comment"))
+
+	job.Stdout.Add(stdoutBuffer)
+	if err := job.Run(); err != nil {
+		return err
+	}
+	env.Set("Id", engine.Tail(stdoutBuffer, 1))
+	return writeJSON(w, http.StatusCreated, env)
+}
+
 // Creates an image from Pull or from Import
 func postImagesCreate(eng *engine.Engine, version version.Version, w http.ResponseWriter, r *http.Request, vars map[string]string) error {
 	if err := parseForm(r); err != nil {
@@ -1130,6 +1156,7 @@ func createRouter(eng *engine.Engine, logging, enableCors bool, dockerVersion st
 			"/build":                        postBuild,
 			"/images/create":                postImagesCreate,
 			"/images/load":                  postImagesLoad,
+			"/images/squash":                postImagesSquash,
 			"/images/{name:.*}/push":        postImagesPush,
 			"/images/{name:.*}/tag":         postImagesTag,
 			"/containers/create":            postContainersCreate,
