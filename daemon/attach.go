@@ -83,7 +83,6 @@ func (daemon *Daemon) ContainerAttach(job *engine.Job) engine.Status {
 		var (
 			cStdin           io.ReadCloser
 			cStdout, cStderr io.Writer
-			cStdinCloser     io.Closer
 		)
 
 		if stdin {
@@ -94,7 +93,6 @@ func (daemon *Daemon) ContainerAttach(job *engine.Job) engine.Status {
 				io.Copy(w, job.Stdin)
 			}()
 			cStdin = r
-			cStdinCloser = job.Stdin
 		}
 		if stdout {
 			cStdout = job.Stdout
@@ -103,7 +101,7 @@ func (daemon *Daemon) ContainerAttach(job *engine.Job) engine.Status {
 			cStderr = job.Stderr
 		}
 
-		<-daemon.Attach(&container.StreamConfig, container.Config.OpenStdin, container.Config.StdinOnce, container.Config.Tty, cStdin, cStdinCloser, cStdout, cStderr)
+		<-daemon.Attach(&container.StreamConfig, container.Config.OpenStdin, container.Config.StdinOnce, container.Config.Tty, cStdin, cStdout, cStderr)
 		// If we are in stdinonce mode, wait for the process to end
 		// otherwise, simply return
 		if container.Config.StdinOnce && !container.Config.Tty {
@@ -119,16 +117,16 @@ func (daemon *Daemon) ContainerAttach(job *engine.Job) engine.Status {
 // Attach and ContainerAttach.
 //
 // This method is in use by builder/builder.go.
-func (daemon *Daemon) Attach(streamConfig *StreamConfig, openStdin, stdinOnce, tty bool, stdin io.ReadCloser, stdinCloser io.Closer, stdout io.Writer, stderr io.Writer) chan error {
+func (daemon *Daemon) Attach(streamConfig *StreamConfig, openStdin, stdinOnce, tty bool, stdin io.ReadCloser, stdout io.Writer, stderr io.Writer) chan error {
 	var (
-		cStdout, cStderr io.ReadCloser
-		nJobs            int
-		errors           = make(chan error, 3)
+		cStdout, cStderr       io.ReadCloser
+		cStdin                 io.WriteCloser
+		errors                 = make(chan error, 3)
+		stdoutDone, stderrDone bool
 	)
 
 	// Connect stdin of container to the http conn.
 	if stdin != nil && openStdin {
-		nJobs++
 		// Get the stdin pipe.
 		if cStdin, err := streamConfig.StdinPipe(); err != nil {
 			errors <- err
@@ -136,19 +134,7 @@ func (daemon *Daemon) Attach(streamConfig *StreamConfig, openStdin, stdinOnce, t
 			go func() {
 				log.Debugf("attach: stdin: begin")
 				defer log.Debugf("attach: stdin: end")
-				// No matter what, when stdin is closed (io.Copy unblock), close stdout and stderr
-				if stdinOnce && !tty {
-					defer cStdin.Close()
-				} else {
-					defer func() {
-						if cStdout != nil {
-							cStdout.Close()
-						}
-						if cStderr != nil {
-							cStderr.Close()
-						}
-					}()
-				}
+				defer cStdin.Close()
 				if tty {
 					_, err = utils.CopyEscapable(cStdin, stdin)
 				} else {
@@ -166,22 +152,15 @@ func (daemon *Daemon) Attach(streamConfig *StreamConfig, openStdin, stdinOnce, t
 		}
 	}
 	if stdout != nil {
-		nJobs++
 		// Get a reader end of a pipe that is attached as stdout to the container.
 		if p, err := streamConfig.StdoutPipe(); err != nil {
+			stdoutDone = true
 			errors <- err
 		} else {
 			cStdout = p
 			go func() {
 				log.Debugf("attach: stdout: begin")
 				defer log.Debugf("attach: stdout: end")
-				// If we are in StdinOnce mode, then close stdin
-				if stdinOnce && stdin != nil {
-					defer stdin.Close()
-				}
-				if stdinCloser != nil {
-					defer stdinCloser.Close()
-				}
 				_, err := io.Copy(stdout, cStdout)
 				if err == io.ErrClosedPipe {
 					err = nil
@@ -189,39 +168,30 @@ func (daemon *Daemon) Attach(streamConfig *StreamConfig, openStdin, stdinOnce, t
 				if err != nil {
 					log.Errorf("attach: stdout: %s", err)
 				}
+				stdoutDone = true
 				errors <- err
 			}()
 		}
 	} else {
 		// Point stdout of container to a no-op writer.
 		go func() {
-			if stdinCloser != nil {
-				defer stdinCloser.Close()
-			}
 			if cStdout, err := streamConfig.StdoutPipe(); err != nil {
 				log.Errorf("attach: stdout pipe: %s", err)
 			} else {
 				io.Copy(&ioutils.NopWriter{}, cStdout)
 			}
+			stdoutDone = true
 		}()
 	}
 	if stderr != nil {
-		nJobs++
 		if p, err := streamConfig.StderrPipe(); err != nil {
+			stderrDone = true
 			errors <- err
 		} else {
 			cStderr = p
 			go func() {
 				log.Debugf("attach: stderr: begin")
 				defer log.Debugf("attach: stderr: end")
-				// If we are in StdinOnce mode, then close stdin
-				// Why are we closing stdin here and above while handling stdout?
-				if stdinOnce && stdin != nil {
-					defer stdin.Close()
-				}
-				if stdinCloser != nil {
-					defer stdinCloser.Close()
-				}
 				_, err := io.Copy(stderr, cStderr)
 				if err == io.ErrClosedPipe {
 					err = nil
@@ -229,21 +199,19 @@ func (daemon *Daemon) Attach(streamConfig *StreamConfig, openStdin, stdinOnce, t
 				if err != nil {
 					log.Errorf("attach: stderr: %s", err)
 				}
+				stderrDone = true
 				errors <- err
 			}()
 		}
 	} else {
 		// Point stderr at a no-op writer.
 		go func() {
-			if stdinCloser != nil {
-				defer stdinCloser.Close()
-			}
-
 			if cStderr, err := streamConfig.StderrPipe(); err != nil {
 				log.Errorf("attach: stdout pipe: %s", err)
 			} else {
 				io.Copy(&ioutils.NopWriter{}, cStderr)
 			}
+			stderrDone = true
 		}()
 	}
 
@@ -255,17 +223,21 @@ func (daemon *Daemon) Attach(streamConfig *StreamConfig, openStdin, stdinOnce, t
 			if cStderr != nil {
 				cStderr.Close()
 			}
+			if cStdin != nil {
+				cStdin.Close()
+			}
 		}()
 
 		// FIXME: how to clean up the stdin goroutine without the unwanted side effect
 		// of closing the passed stdin? Add an intermediary io.Pipe?
-		for i := 0; i < nJobs; i++ {
-			log.Debugf("attach: waiting for job %d/%d", i+1, nJobs)
-			if err := <-errors; err != nil {
-				log.Errorf("attach: job %d returned error %s, aborting all jobs", i+1, err)
+		for err := range errors {
+			if err != nil {
+				log.Errorf("attach: got error %s, aborting all jobs", err)
 				return err
 			}
-			log.Debugf("attach: job %d completed successfully", i+1)
+			if stdoutDone && stderrDone {
+				break
+			}
 		}
 		log.Debugf("attach: all jobs completed successfully")
 		return nil
