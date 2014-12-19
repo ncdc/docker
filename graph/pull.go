@@ -2,6 +2,7 @@ package graph
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -478,9 +479,24 @@ func (s *TagStore) pullV2Repository(eng *engine.Engine, r *registry.Session, out
 
 func (s *TagStore) pullV2Tag(eng *engine.Engine, r *registry.Session, out io.Writer, localName, remoteName, tag string, sf *utils.StreamFormatter, parallel bool, auth *registry.RequestAuthorization) (bool, error) {
 	log.Debugf("Pulling tag from V2 registry: %q", tag)
-	manifestBytes, err := r.GetV2ImageManifest(remoteName, tag, auth)
-	if err != nil {
-		return false, err
+	var manifestBytes []byte
+	var err error
+	if strings.Contains(tag, "@") {
+		if strings.Count(tag, "@") != 1 {
+			return false, fmt.Errorf("invalid tag@digest format: %s", tag)
+		}
+		parts := strings.Split(tag, "@")
+		tag = parts[0]
+		digest := parts[1]
+		manifestBytes, err = r.GetV2ImageManifestByDigest(remoteName, tag, digest, auth)
+		if err != nil {
+			return false, err
+		}
+	} else {
+		manifestBytes, err = r.GetV2ImageManifest(remoteName, tag, auth)
+		if err != nil {
+			return false, err
+		}
 	}
 
 	manifest, verified, err := s.verifyManifest(eng, manifestBytes)
@@ -611,6 +627,15 @@ func (s *TagStore) pullV2Tag(eng *engine.Engine, r *registry.Session, out io.Wri
 	}
 
 	if err = s.Set(localName, tag, downloads[0].img.ID, true); err != nil {
+		return false, err
+	}
+
+	manifestWithoutSignatureJSON, err := json.Marshal(manifest)
+	if err != nil {
+		return false, err
+	}
+	digest := sha256.Sum256(manifestWithoutSignatureJSON)
+	if err = s.SetDigest(localName, tag, fmt.Sprintf("%x", digest[:sha256.Size]), downloads[0].img.ID); err != nil {
 		return false, err
 	}
 

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 
+	log "github.com/Sirupsen/logrus"
 	"github.com/docker/docker/image"
 	"github.com/docker/docker/pkg/parsers"
 	"github.com/docker/docker/utils"
@@ -28,6 +29,7 @@ type TagStore struct {
 	mirrors            []string
 	insecureRegistries []string
 	Repositories       map[string]Repository
+	RepositoryDigests  map[string]RepositoryDigest
 	sync.Mutex
 	// FIXME: move push/pull-related fields
 	// to a helper type
@@ -36,6 +38,8 @@ type TagStore struct {
 }
 
 type Repository map[string]string
+
+type RepositoryDigest map[string]map[string]string
 
 // update Repository mapping with content of u
 func (r Repository) Update(u Repository) {
@@ -67,6 +71,7 @@ func NewTagStore(path string, graph *Graph, mirrors []string, insecureRegistries
 		mirrors:            mirrors,
 		insecureRegistries: insecureRegistries,
 		Repositories:       make(map[string]Repository),
+		RepositoryDigests:  make(map[string]RepositoryDigest),
 		pullingPool:        make(map[string]chan struct{}),
 		pushingPool:        make(map[string]chan struct{}),
 	}
@@ -78,6 +83,7 @@ func NewTagStore(path string, graph *Graph, mirrors []string, insecureRegistries
 	} else if err != nil {
 		return nil, err
 	}
+	log.Debugf("NEW STORE %#v\n", store)
 	return store, nil
 }
 
@@ -111,7 +117,16 @@ func (store *TagStore) LookupImage(name string) (*image.Image, error) {
 	if tag == "" {
 		tag = DEFAULTTAG
 	}
-	img, err := store.GetImage(repos, tag)
+	var err error
+	var img *image.Image
+	if strings.Contains(tag, "@") {
+		parts := strings.Split(tag, "@")
+		tag = parts[0]
+		digest := parts[1]
+		img, err = store.GetImageByTagAndDigest(repos, tag, digest)
+	} else {
+		img, err = store.GetImage(repos, tag)
+	}
 	store.Lock()
 	defer store.Unlock()
 	if err != nil {
@@ -232,6 +247,44 @@ func (store *TagStore) Set(repoName, tag, imageName string, force bool) error {
 	return store.save()
 }
 
+func (store *TagStore) SetDigest(repoName, tag, digest, imageName string) error {
+	img, err := store.LookupImage(imageName)
+	store.Lock()
+	defer store.Unlock()
+	if err != nil {
+		return err
+	}
+	if tag == "" {
+		tag = DEFAULTTAG
+	}
+	if err := validateRepoName(repoName); err != nil {
+		return err
+	}
+	if err := ValidateTagName(tag); err != nil {
+		return err
+	}
+	if err := store.reload(); err != nil {
+		return err
+	}
+	var repo RepositoryDigest
+	log.Debugf("SETDIGEST RepositoryDigest = %#v\n", store.RepositoryDigests)
+	if r, exists := store.RepositoryDigests[repoName]; exists {
+		repo = r
+	} else {
+		repo = make(RepositoryDigest)
+		store.RepositoryDigests[repoName] = repo
+	}
+	var digestMap map[string]string
+	if m, exists := repo[tag]; exists {
+		digestMap = m
+	} else {
+		digestMap = make(map[string]string)
+		repo[tag] = digestMap
+	}
+	digestMap[digest] = img.ID
+	return store.save()
+}
+
 func (store *TagStore) Get(repoName string) (Repository, error) {
 	store.Lock()
 	defer store.Unlock()
@@ -239,6 +292,18 @@ func (store *TagStore) Get(repoName string) (Repository, error) {
 		return nil, err
 	}
 	if r, exists := store.Repositories[repoName]; exists {
+		return r, nil
+	}
+	return nil, nil
+}
+
+func (store *TagStore) GetRepositoryDigest(repoName string) (RepositoryDigest, error) {
+	store.Lock()
+	defer store.Unlock()
+	if err := store.reload(); err != nil {
+		return nil, err
+	}
+	if r, exists := store.RepositoryDigests[repoName]; exists {
 		return r, nil
 	}
 	return nil, nil
@@ -259,6 +324,23 @@ func (store *TagStore) GetImage(repoName, tagOrID string) (*image.Image, error) 
 	// If no matching tag is found, search through images for a matching image id
 	for _, revision := range repo {
 		if strings.HasPrefix(revision, tagOrID) {
+			return store.graph.Get(revision)
+		}
+	}
+	return nil, nil
+}
+
+func (store *TagStore) GetImageByTagAndDigest(repoName, tag, digest string) (*image.Image, error) {
+	repo, err := store.GetRepositoryDigest(repoName)
+	store.Lock()
+	defer store.Unlock()
+	if err != nil {
+		return nil, err
+	} else if repo == nil {
+		return nil, nil
+	}
+	if tagEntry, tagExists := repo[tag]; tagExists {
+		if revision, revisionExists := tagEntry[digest]; revisionExists {
 			return store.graph.Get(revision)
 		}
 	}

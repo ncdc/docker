@@ -24,7 +24,7 @@ func init() {
 }
 
 func getV2Builder(e *Endpoint) *v2.URLBuilder {
-	return registryURLBuilder
+	return v2.NewURLBuilder(e.URL)
 }
 
 // GetV2Authorization gets the authorization needed to the given image
@@ -48,6 +48,41 @@ func (r *Session) GetV2Authorization(imageName string, readOnly bool) (*RequestA
 //
 func (r *Session) GetV2ImageManifest(imageName, tagName string, auth *RequestAuthorization) ([]byte, error) {
 	routeURL, err := getV2Builder(r.indexEndpoint).BuildManifestURL(imageName, tagName)
+	if err != nil {
+		return nil, err
+	}
+
+	method := "GET"
+	log.Debugf("[registry] Calling %q %s", method, routeURL)
+
+	req, err := r.reqFactory.NewRequest(method, routeURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	auth.Authorize(req)
+	res, _, err := r.doRequest(req)
+	if err != nil {
+		return nil, err
+	}
+	defer res.Body.Close()
+	if res.StatusCode != 200 {
+		if res.StatusCode == 401 {
+			return nil, errLoginRequired
+		} else if res.StatusCode == 404 {
+			return nil, ErrDoesNotExist
+		}
+		return nil, utils.NewHTTPRequestError(fmt.Sprintf("Server error: %d trying to fetch for %s:%s", res.StatusCode, imageName, tagName), res)
+	}
+
+	buf, err := ioutil.ReadAll(res.Body)
+	if err != nil {
+		return nil, fmt.Errorf("Error while reading the http response: %s", err)
+	}
+	return buf, nil
+}
+
+func (r *Session) GetV2ImageManifestByDigest(imageName, tagName, digest string, auth *RequestAuthorization) ([]byte, error) {
+	routeURL, err := getV2Builder(r.indexEndpoint).BuildManifestByDigestURL(imageName, tagName, digest)
 	if err != nil {
 		return nil, err
 	}

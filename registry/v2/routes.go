@@ -5,16 +5,18 @@ import "github.com/gorilla/mux"
 // The following are definitions of the name under which all V2 routes are
 // registered. These symbols can be used to look up a route based on the name.
 const (
-	RouteNameBase            = "base"
-	RouteNameManifest        = "manifest"
-	RouteNameTags            = "tags"
-	RouteNameBlob            = "blob"
-	RouteNameBlobUpload      = "blob-upload"
-	RouteNameBlobUploadChunk = "blob-upload-chunk"
+	RouteNameBase             = "base"
+	RouteNameManifest         = "manifest"
+	RouteNameManifestByDigest = "manifest-by-digest"
+	RouteNameTags             = "tags"
+	RouteNameBlob             = "blob"
+	RouteNameBlobUpload       = "blob-upload"
+	RouteNameBlobUploadChunk  = "blob-upload-chunk"
 )
 
 var allEndpoints = []string{
 	RouteNameManifest,
+	RouteNameManifestByDigest,
 	RouteNameTags,
 	RouteNameBlob,
 	RouteNameBlobUpload,
@@ -39,6 +41,10 @@ func Router() *mux.Router {
 	router.
 		Path("/v2/{name:" + RepositoryNameRegexp.String() + "}/manifests/{tag:" + TagNameRegexp.String() + "}").
 		Name(RouteNameManifest)
+
+	router.
+		Path("/v2/{name:" + RepositoryNameRegexp.String() + "}/manifests/{tag:" + TagNameRegexp.String() + "}/{digest:[a-zA-Z0-9]+}").
+		Name(RouteNameManifestByDigest)
 
 	// GET	/v2/<name>/tags/list	Tags	Fetch the tags under the repository identified by name.
 	router.
