@@ -55,10 +55,18 @@ func (r *Session) GetV2Authorization(imageName string, readOnly bool) (auth *Req
 //  1.c) if anything else, err
 // 2) PUT the created/signed manifest
 //
-func (r *Session) GetV2ImageManifest(imageName, tagName string, auth *RequestAuthorization) ([]byte, error) {
-	routeURL, err := getV2Builder(r.indexEndpoint).BuildManifestURL(imageName, tagName)
+func (r *Session) GetV2ImageManifest(imageName, tagName, digest string, auth *RequestAuthorization) ([]byte, string, error) {
+	var (
+		err      error
+		routeURL string
+	)
+	if len(digest) == 0 {
+		routeURL, err = getV2Builder(r.indexEndpoint).BuildManifestURL(imageName, tagName)
+	} else {
+		routeURL, err = getV2Builder(r.indexEndpoint).BuildManifestByDigestURL(imageName, tagName, digest)
+	}
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
 	method := "GET"
@@ -66,30 +74,30 @@ func (r *Session) GetV2ImageManifest(imageName, tagName string, auth *RequestAut
 
 	req, err := r.reqFactory.NewRequest(method, routeURL, nil)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	if err := auth.Authorize(req); err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	res, _, err := r.doRequest(req)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	defer res.Body.Close()
 	if res.StatusCode != 200 {
 		if res.StatusCode == 401 {
-			return nil, errLoginRequired
+			return nil, "", errLoginRequired
 		} else if res.StatusCode == 404 {
-			return nil, ErrDoesNotExist
+			return nil, "", ErrDoesNotExist
 		}
-		return nil, utils.NewHTTPRequestError(fmt.Sprintf("Server error: %d trying to fetch for %s:%s", res.StatusCode, imageName, tagName), res)
+		return nil, "", utils.NewHTTPRequestError(fmt.Sprintf("Server error: %d trying to fetch for %s:%s", res.StatusCode, imageName, tagName), res)
 	}
 
 	buf, err := ioutil.ReadAll(res.Body)
 	if err != nil {
-		return nil, fmt.Errorf("Error while reading the http response: %s", err)
+		return nil, "", fmt.Errorf("Error while reading the http response: %s", err)
 	}
-	return buf, nil
+	return buf, res.Header.Get("Digest"), nil
 }
 
 // - Succeeded to mount for this image scope
@@ -245,36 +253,36 @@ func (r *Session) PutV2ImageBlob(imageName, sumType, sumStr string, blobRdr io.R
 }
 
 // Finally Push the (signed) manifest of the blobs we've just pushed
-func (r *Session) PutV2ImageManifest(imageName, tagName string, manifestRdr io.Reader, auth *RequestAuthorization) error {
+func (r *Session) PutV2ImageManifest(imageName, tagName string, manifestRdr io.Reader, auth *RequestAuthorization) (string, error) {
 	routeURL, err := getV2Builder(r.indexEndpoint).BuildManifestURL(imageName, tagName)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	method := "PUT"
 	log.Debugf("[registry] Calling %q %s", method, routeURL)
 	req, err := r.reqFactory.NewRequest(method, routeURL, manifestRdr)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if err := auth.Authorize(req); err != nil {
-		return err
+		return "", err
 	}
 	res, _, err := r.doRequest(req)
 	if err != nil {
-		return err
+		return "", err
 	}
 	b, _ := ioutil.ReadAll(res.Body)
 	res.Body.Close()
 	if res.StatusCode != 200 {
 		if res.StatusCode == 401 {
-			return errLoginRequired
+			return "", errLoginRequired
 		}
 		log.Debugf("Unexpected response from server: %q %#v", b, res.Header)
-		return utils.NewHTTPRequestError(fmt.Sprintf("Server error: %d trying to push %s:%s manifest", res.StatusCode, imageName, tagName), res)
+		return "", utils.NewHTTPRequestError(fmt.Sprintf("Server error: %d trying to push %s:%s manifest", res.StatusCode, imageName, tagName), res)
 	}
 
-	return nil
+	return res.Header.Get("Digest"), nil
 }
 
 type remoteTags struct {

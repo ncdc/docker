@@ -41,12 +41,12 @@ type ManifestHistory struct {
 }
 
 type ManifestData struct {
+	SchemaVersion int                `json:"schemaVersion"`
 	Name          string             `json:"name"`
 	Tag           string             `json:"tag"`
 	Architecture  string             `json:"architecture"`
 	FSLayers      []*FSLayer         `json:"fsLayers"`
 	History       []*ManifestHistory `json:"history"`
-	SchemaVersion int                `json:"schemaVersion"`
 }
 
 type APIVersion int

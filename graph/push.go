@@ -283,6 +283,8 @@ func (s *TagStore) CmdPush(job *engine.Job) engine.Status {
 			log.Debugf("Pushing unverified image")
 		}
 
+		digestImageID := ""
+
 		for i := len(manifest.FSLayers) - 1; i >= 0; i-- {
 			var (
 				sumStr  = manifest.FSLayers[i].BlobSum
@@ -303,6 +305,10 @@ func (s *TagStore) CmdPush(job *engine.Job) engine.Status {
 			img, err = s.graph.Get(img.ID)
 			if err != nil {
 				return job.Error(err)
+			}
+
+			if len(digestImageID) == 0 {
+				digestImageID = img.ID
 			}
 
 			arch, err := img.TarLayer()
@@ -329,8 +335,12 @@ func (s *TagStore) CmdPush(job *engine.Job) engine.Status {
 		}
 
 		// push the manifest
-		err = r.PutV2ImageManifest(repoInfo.RemoteName, tag, bytes.NewReader([]byte(manifestBytes)), auth)
+		digest, err := r.PutV2ImageManifest(repoInfo.RemoteName, tag, bytes.NewReader([]byte(manifestBytes)), auth)
 		if err != nil {
+			return job.Error(err)
+		}
+
+		if err = s.SetDigest(repoInfo.LocalName, tag, digest, digestImageID); err != nil {
 			return job.Error(err)
 		}
 

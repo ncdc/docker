@@ -417,7 +417,16 @@ func (s *TagStore) pullV2Repository(eng *engine.Engine, r *registry.Session, out
 
 func (s *TagStore) pullV2Tag(eng *engine.Engine, r *registry.Session, out io.Writer, repoInfo *registry.RepositoryInfo, tag string, sf *utils.StreamFormatter, parallel bool, auth *registry.RequestAuthorization) (bool, error) {
 	log.Debugf("Pulling tag from V2 registry: %q", tag)
-	manifestBytes, err := r.GetV2ImageManifest(repoInfo.RemoteName, tag, auth)
+	pullDigest := ""
+	if strings.Contains(tag, "@") {
+		if strings.Count(tag, "@") != 1 {
+			return false, fmt.Errorf("invalid tag@digest format: %s", tag)
+		}
+		parts := strings.Split(tag, "@")
+		tag = parts[0]
+		pullDigest = parts[1]
+	}
+	manifestBytes, manifestDigest, err := r.GetV2ImageManifest(repoInfo.RemoteName, tag, pullDigest, auth)
 	if err != nil {
 		return false, err
 	}
@@ -558,6 +567,10 @@ func (s *TagStore) pullV2Tag(eng *engine.Engine, r *registry.Session, out io.Wri
 	}
 
 	if err = s.Set(repoInfo.LocalName, tag, downloads[0].img.ID, true); err != nil {
+		return false, err
+	}
+
+	if err = s.SetDigest(repoInfo.LocalName, tag, manifestDigest, downloads[0].img.ID); err != nil {
 		return false, err
 	}
 
