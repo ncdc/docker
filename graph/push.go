@@ -340,6 +340,8 @@ func (s *TagStore) pushV2Repository(r *registry.Session, eng *engine.Engine, out
 			log.Infof("Pushing verified image, key %s is registered for %q", s.trustKey.KeyID(), repoInfo.RemoteName)
 		}
 
+		digestImageID := ""
+
 		for i := len(manifest.FSLayers) - 1; i >= 0; i-- {
 			var (
 				sumStr  = manifest.FSLayers[i].BlobSum
@@ -355,6 +357,10 @@ func (s *TagStore) pushV2Repository(r *registry.Session, eng *engine.Engine, out
 			img, err := image.NewImgJSON(imgJSON)
 			if err != nil {
 				return fmt.Errorf("Failed to parse json: %s", err)
+			}
+
+			if i == 0 {
+				digestImageID = img.ID
 			}
 
 			// Call mount blob
@@ -374,7 +380,11 @@ func (s *TagStore) pushV2Repository(r *registry.Session, eng *engine.Engine, out
 		}
 
 		// push the manifest
-		if err := r.PutV2ImageManifest(endpoint, repoInfo.RemoteName, tag, bytes.NewReader([]byte(manifestBytes)), auth); err != nil {
+		digest, err := r.PutV2ImageManifest(endpoint, repoInfo.RemoteName, tag, bytes.NewReader([]byte(manifestBytes)), auth)
+		if err != nil {
+			return err
+		}
+		if err := s.SetDigest(repoInfo.LocalName, digest, digestImageID); err != nil {
 			return err
 		}
 	}
