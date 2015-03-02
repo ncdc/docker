@@ -384,8 +384,10 @@ func (s *TagStore) pushV2Repository(r *registry.Session, eng *engine.Engine, out
 		if err != nil {
 			return err
 		}
-		if err := s.SetDigest(repoInfo.LocalName, digest, digestImageID); err != nil {
-			return err
+		if len(digest) > 0 {
+			if err := s.SetDigest(repoInfo.LocalName, digest, digestImageID); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
