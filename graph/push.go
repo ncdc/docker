@@ -420,6 +420,7 @@ func (s *TagStore) pushV2Repository(r *registry.Session, localRepo Repository, o
 			if err := s.SetDigest(repoInfo.LocalName, digest, digestImageID); err != nil {
 				return err
 			}
+			out.Write(sf.FormatStatus("", "Digest: %s", digest))
 		}
 	}
 	return nil
