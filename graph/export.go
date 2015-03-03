@@ -59,12 +59,12 @@ func (s *TagStore) CmdImageExport(job *engine.Job) engine.Status {
 
 			if img != nil {
 				// This is a named image like 'busybox:latest'
-				repoName, repoTag := parsers.ParseRepositoryTag(name)
+				imageRef := parsers.ParseImageReference(name)
 
 				// check this length, because a lookup of a truncated has will not have a tag
 				// and will not need to be added to this map
-				if len(repoTag) > 0 {
-					addKey(repoName, repoTag, img.ID)
+				if len(imageRef.Tag) > 0 {
+					addKey(imageRef.Repository, imageRef.Tag, img.ID)
 				}
 				if err := s.exportImage(job.Eng, img.ID, tempdir); err != nil {
 					return job.Error(err)

@@ -113,18 +113,15 @@ func (store *TagStore) reload() error {
 func (store *TagStore) LookupImage(name string) (*image.Image, error) {
 	// FIXME: standardize on returning nil when the image doesn't exist, and err for everything else
 	// (so we can pass all errors here)
-	repos, tag := parsers.ParseRepositoryTag(name)
-	if tag == "" {
-		tag = DEFAULTTAG
-	}
+	imageRef := parsers.ParseImageReference(name)
 	var (
 		err error
 		img *image.Image
 	)
-	if strings.Contains(tag, ":") {
-		img, err = store.GetImageByDigest(repos, tag)
+	if len(imageRef.Digest) > 0 {
+		img, err = store.GetImageByDigest(imageRef.Repository, imageRef.Digest)
 	} else {
-		img, err = store.GetImage(repos, tag)
+		img, err = store.GetImage(imageRef.Repository, imageRef.Tag)
 	}
 	store.Lock()
 	defer store.Unlock()
@@ -344,8 +341,8 @@ func (store *TagStore) GetDigest(repoName string) (DigestRepository, error) {
 	return nil, nil
 }
 
-func (store *TagStore) GetImageByDigest(repoName, digest string) (*image.Image, error) {
-	repo, err := store.GetDigest(repoName)
+func (store *TagStore) GetImageByDigest(imageRef registry.ImageReference) (*image.Image, error) {
+	repo, err := store.GetDigest(imageRef.Repository)
 	store.Lock()
 	defer store.Unlock()
 	if err != nil {
@@ -353,7 +350,7 @@ func (store *TagStore) GetImageByDigest(repoName, digest string) (*image.Image, 
 	} else if repo == nil {
 		return nil, nil
 	}
-	if revision, exists := repo[digest]; exists {
+	if revision, exists := repo[imageRef.Digest]; exists {
 		return store.graph.Get(revision)
 	}
 	return nil, nil

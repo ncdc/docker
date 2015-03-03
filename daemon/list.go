@@ -6,7 +6,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/docker/docker/graph"
 	"github.com/docker/docker/pkg/graphdb"
 
 	"github.com/docker/docker/engine"
@@ -124,12 +123,8 @@ func (daemon *Daemon) Containers(job *engine.Job) engine.Status {
 		out := &engine.Env{}
 		out.SetJson("Id", container.ID)
 		out.SetList("Names", names[container.ID])
-		img := container.Config.Image
-		_, tag := parsers.ParseRepositoryTag(container.Config.Image)
-		if tag == "" {
-			img = img + ":" + graph.DEFAULTTAG
-		}
-		out.SetJson("Image", img)
+		imgRef := parsers.ParseImageReference(container.Config.Image)
+		out.SetJson("Image", img.String())
 		if len(container.Args) > 0 {
 			args := []string{}
 			for _, arg := range container.Args {

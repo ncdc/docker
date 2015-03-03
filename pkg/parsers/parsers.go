@@ -62,15 +62,15 @@ func ParseTCPAddr(addr string, defaultAddr string) (string, error) {
 	return fmt.Sprintf("tcp://%s:%d", host, p), nil
 }
 
-// Get a repos name and returns the right reposName + tag|digest
+// Get a repository name and returns the right image reference.
 // The tag can be confusing because of a port in a repository name.
 //     Ex: localhost.localdomain:5000/samalba/hipache:latest
 //     Digest ex: localhost:5000/foo/bar@sha256:bc8813ea7b3603864987522f02a76101c17ad122e1c46d790efc0fca78ca7bfb
-func ParseRepositoryTag(repos string) (string, string) {
+func ParseImageReference(ref string) ImageReference {
 	n := strings.Index(repos, "@")
 	if n >= 0 {
 		parts := strings.Split(repos, "@")
-		return parts[0], parts[1]
+		return ImageReference{Repository: parts[0], Digest: parts[1]}
 	}
 	n = strings.LastIndex(repos, ":")
 	if n < 0 {

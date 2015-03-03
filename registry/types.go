@@ -1,5 +1,7 @@
 package registry
 
+import "fmt"
+
 type SearchResult struct {
 	StarCount   int    `json:"star_count"`
 	IsOfficial  bool   `json:"is_official"`
@@ -106,4 +108,18 @@ type RepositoryInfo struct {
 	LocalName     string
 	CanonicalName string
 	Official      bool
+}
+
+// ImageReference is a reference to an image.
+type ImageReference struct {
+	Repository string
+	Tag        string
+	Digest     string
+}
+
+func (ref ImageReference) String() string {
+	if len(ref.Tag) > 0 {
+		return fmt.Sprintf("%s:%s", ref.Repository, ref.Tag)
+	}
+	return fmt.Sprintf("%s@%s", ref.Repository, ref.Digest)
 }

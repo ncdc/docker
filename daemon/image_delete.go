@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	"github.com/docker/docker/engine"
-	"github.com/docker/docker/graph"
 	"github.com/docker/docker/image"
 	"github.com/docker/docker/pkg/common"
 	"github.com/docker/docker/pkg/parsers"
@@ -30,21 +29,16 @@ func (daemon *Daemon) ImageDelete(job *engine.Job) engine.Status {
 
 // FIXME: make this private and use the job instead
 func (daemon *Daemon) DeleteImage(eng *engine.Engine, name string, imgs *engine.Table, first, force, noprune bool) error {
-	var (
-		repoName, tag string
-		tags          = []string{}
-	)
+	var tags = []string{}
 
-	// FIXME: please respect DRY and centralize repo+tag parsing in a single central place! -- shykes
-	repoName, tag = parsers.ParseRepositoryTag(name)
-	if tag == "" {
-		tag = graph.DEFAULTTAG
-	}
+	imageRef := parsers.ParseImageReference(name)
+	repoName := imageRef.Repository
+	tag := imageRef.Tag
 
 	img, err := daemon.Repositories().LookupImage(name)
 	if err != nil {
-		if r, _ := daemon.Repositories().Get(repoName); r != nil {
-			return fmt.Errorf("No such image: %s:%s", repoName, tag)
+		if r, _ := daemon.Repositories().Get(imageRef.Repository); r != nil {
+			return fmt.Errorf("No such image: %s", imageRef)
 		}
 		return fmt.Errorf("No such image: %s", name)
 	}
@@ -61,10 +55,10 @@ func (daemon *Daemon) DeleteImage(eng *engine.Engine, name string, imgs *engine.
 
 	repos := daemon.Repositories().ByID()[img.ID]
 
-	//If delete by id, see if the id belong only to one repository
-	if repoName == "" {
+	//If delete by id, see if the id belongs only to one repository
+	if imageRef.Repository == "" {
 		for _, repoAndTag := range repos {
-			parsedRepo, parsedTag := parsers.ParseRepositoryTag(repoAndTag)
+			parsedRef := parsers.ParseImageReference(repoAndTag)
 			if repoName == "" || repoName == parsedRepo {
 				repoName = parsedRepo
 				if parsedTag != "" {
