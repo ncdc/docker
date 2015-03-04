@@ -111,9 +111,9 @@ RUN gem install --no-rdoc --no-ri fpm --version 1.3.2
 RUN git clone -b buildroot-2014.02 https://github.com/jpetazzo/docker-busybox.git /docker-busybox
 
 # Install registry
-ENV REGISTRY_COMMIT c448e0416925a9876d5576e412703c9b8b865e19
+ENV REGISTRY_COMMIT bba344cd8ea8768521bf1689d32a50926c5e95f3
 RUN set -x \
-	&& git clone https://github.com/docker/distribution.git /go/src/github.com/docker/distribution \
+	&& git clone https://github.com/stevvooe/distribution.git /go/src/github.com/docker/distribution \
 	&& (cd /go/src/github.com/docker/distribution && git checkout -q $REGISTRY_COMMIT) \
 	&& GOPATH=/go/src/github.com/docker/distribution/Godeps/_workspace:/go \
 		go build -o /go/bin/registry-v2 github.com/docker/distribution/cmd/registry
