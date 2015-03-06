@@ -1508,6 +1508,9 @@ func (cli *DockerCli) CmdImages(args ...string) error {
 			for _, repotag := range out.GetList("RepoTags") {
 				digest := repoDigests[repotag]
 				delete(repoDigests, repotag)
+				if len(digest) == 0 {
+					digest = "<none>"
+				}
 
 				repo, tag := parsers.ParseRepositoryTag(repotag)
 
