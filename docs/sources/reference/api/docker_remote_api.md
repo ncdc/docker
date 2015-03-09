@@ -62,6 +62,10 @@ You can set ulimit settings to be used within the container.
 **New!**
 Add return value `HttpProxy`,`HttpsProxy` and `NoProxy` to this entrypoint.
 
+`GET /images/json`
+
+**New!**
+Added a `digests` parameter (default `false`) to include image digest information.
 
 ## v1.17
 
